@@ -2,7 +2,6 @@
 import           Control.Monad (replicateM, msum, replicateM_)
 import           Data.Char     (isNumber, digitToInt)
 import           Data.Maybe    (fromJust)
-import           Data.Map      (Map, mapWithKey, fromList, keys, empty)
 import qualified Data.Map      as M
 import qualified Data.Foldable as F
 
@@ -23,7 +22,7 @@ data Tile = Tile Int Int
 
 --------------------------------------------------------------------------------
 -- A sudoku maps the 81 tiles on their cells.
-type Sudoku = Map Tile Cell
+type Sudoku = M.Map Tile Cell
 
 --------------------------------------------------------------------------------
 -- Read a sudoku from stdin. Format: 9 lines of 9 characters each, where a digit
@@ -31,7 +30,7 @@ type Sudoku = Map Tile Cell
 parseSudoku :: IO Sudoku
 parseSudoku = do
     lines <- replicateM 9 getLine
-    return $ fromList $
+    return $ M.fromList $
         [ (Tile r c, parseCell char)
         | (r, line) <- zip [0..] lines
         , (c, char) <- zip [0..] line ]
@@ -43,7 +42,7 @@ parseSudoku = do
 -- fixTile assumes the given tile is correct, and removes all clashing
 -- possibilities. If there's a clash with a certain digit, Nothing is returned.
 fixTile :: Tile -> Sudoku -> Maybe Sudoku
-fixTile (Tile r c) s = validate $ mapWithKey (filterCell $ s M.! Tile r c) s
+fixTile (Tile r c) s = validate $ M.mapWithKey (filterCell $ s M.! Tile r c) s
   where
     dangerTile :: Tile -> Bool
     dangerTile (Tile y x) 
@@ -70,7 +69,7 @@ fixTile (Tile r c) s = validate $ mapWithKey (filterCell $ s M.! Tile r c) s
 -- possibilities, and returns Nothing if there are clashing values in the
 -- Sudoku.
 iterateFixes :: Sudoku -> Maybe Sudoku
-iterateFixes sudoku = F.foldrM fixTile sudoku (keys sudoku)
+iterateFixes sudoku = F.foldrM fixTile sudoku (M.keys sudoku)
 
 --------------------------------------------------------------------------------
 -- Makes all tiles where there is only one possible digit left fixed.
@@ -84,7 +83,7 @@ fixSingles = M.map go
 -- Repeates removing possibilities and fixing cells with only one possible digit
 -- until no further change is made this way.
 fillSudoku :: Sudoku -> Sudoku
-fillSudoku sudoku = fst $ until noChange nextIteration (empty, sudoku)
+fillSudoku sudoku = fst $ until noChange nextIteration (M.empty, sudoku)
   where
     noChange (a, b) = a == b
     nextIteration (_, old) = (old, fixSingles $ fromJust $ iterateFixes old)
