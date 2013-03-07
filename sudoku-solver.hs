@@ -1,11 +1,13 @@
 --------------------------------------------------------------------------------
-import           Control.Monad (replicateM)
+import           Control.Monad (replicateM, msum, replicateM_)
 import           Data.Char     (isNumber, digitToInt)
-import           Data.Map      (Map, mapWithKey, (!), fromList, keys, empty)
+import           Data.Maybe    (fromJust)
+import           Data.Map      (Map, mapWithKey, fromList, keys, empty)
 import qualified Data.Map      as M
+import qualified Data.Foldable as F
 
 --------------------------------------------------------------------------------
-data Cell = E [Int] | D Int
+data Cell = E [Int] | D Int | X
     deriving (Eq)
 
 instance Show Cell where
@@ -32,28 +34,32 @@ parseSudoku = do
                    | otherwise      = E [1..9]
 
 --------------------------------------------------------------------------------
-fixTile :: Tile -> Sudoku -> Sudoku
-fixTile (Tile r c) sudoku = mapWithKey (filterCell $ sudoku ! Tile r c) sudoku
+fixTile :: Tile -> Sudoku -> Maybe Sudoku
+fixTile (Tile r c) s = validate $ mapWithKey (filterCell $ s M.! Tile r c) s
   where
+    dangerTile :: Tile -> Bool
+    dangerTile (Tile y x) 
+      | c == x && r == y    = False
+      | c == x || r == y    = True
+      | div r 3 == div y 3 && div c 3 == div x 3
+                            = True
+      | otherwise           = False
+
     filterCell :: Cell -> Tile -> Cell -> Cell
-    filterCell (D a) (Tile r' c') (D b)
-      | a==b && r==r' && c/=c'  = error $ "Row mismatch: " ++ info
-      | a==b && c==c' && r/=r'  = error $ "Col mismatch: " ++ info
-      | a==b && div c 3 == div c' 3 && div r 3 == div r' 3 && c/=c' && r/=r'
-                                = error $ "Sqr mismatch: " ++ info
+    filterCell (D a) t (D b)
+      | a == b && dangerTile t  = X
       | otherwise               = D b
-      where info = "(" ++ show a ++ " " ++ show r ++ " " ++ show c ++ ")"
-                ++ "(" ++ show b ++ " " ++ show r'++ " " ++ show c'++ ")"
-                ++ show sudoku
-    filterCell (D a) (Tile r' c') (E ds)
-      | r == r' || c == c' || (div c 3 == div c' 3 && div r 3 == div r' 3)
-                                = E $ filter (/= a) ds
+    filterCell (D a) t (E ds)
+      | dangerTile t            = E $ filter (/= a) ds
       | otherwise               = E ds
     filterCell (E ds) _ c       = c
 
+    validate :: Sudoku -> Maybe Sudoku
+    validate s = if F.any (== X) s then Nothing else Just s
+
 --------------------------------------------------------------------------------
-iterateFixes :: Sudoku -> Sudoku
-iterateFixes sudoku = foldr fixTile sudoku (keys sudoku)
+iterateFixes :: Sudoku -> Maybe Sudoku
+iterateFixes sudoku = F.foldrM fixTile sudoku (keys sudoku)
 
 --------------------------------------------------------------------------------
 fixSingles :: Sudoku -> Sudoku
@@ -63,15 +69,33 @@ fixSingles = M.map go
     go x       = x
 
 --------------------------------------------------------------------------------
-solveSudoku :: Sudoku -> Sudoku
-solveSudoku sudoku = fst $ until noChange nextIteration (empty, sudoku)
+fillSudoku :: Sudoku -> Sudoku
+fillSudoku sudoku = fst $ until noChange nextIteration (empty, sudoku)
   where
     noChange (a, b) = a == b
-    nextIteration (_, old) = (old, fixSingles $ iterateFixes old)
+    nextIteration (_, old) = (old, fixSingles $ fromJust $ iterateFixes old)
+
+--------------------------------------------------------------------------------
+solveSudoku :: Tile -> Maybe Sudoku -> Maybe Sudoku
+solveSudoku _ Nothing = Nothing
+solveSudoku (Tile r c) (Just s)
+  | c >= 9      = solveSudoku (Tile (r + 1) 0) $ Just s
+  | r >= 9      = Just s
+  | otherwise   = case s M.! (Tile r c) of
+        E list -> let
+                    tile = Tile r c
+                    test n = solveSudoku (Tile r $ c + 1) $
+                                fixTile tile $ M.insert tile (D n) s
+                  in msum $ map test list
+        D n -> solveSudoku (Tile r $ c + 1) $ Just s
 
 --------------------------------------------------------------------------------
 main :: IO ()
 main = do
-    sudoku <- parseSudoku
-    putStrLn $ show sudoku
+    times <- (readLn :: IO Int)
+    replicateM_ times $ do 
+        sudoku <- parseSudoku
+        print $ solveSudoku (Tile 0 0) (Just sudoku)
+        _ <- getLine
+        putStrLn ""
     
