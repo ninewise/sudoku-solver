@@ -114,7 +114,7 @@ main = do
     times <- (readLn :: IO Int)
     replicateM_ times $ do 
         sudoku <- parseSudoku
-        print $ solveSudoku sudoku
+        print $ solveSudoku $ fillSudoku sudoku
         _ <- getLine
         putStrLn ""
     
