@@ -1,9 +1,9 @@
 --------------------------------------------------------------------------------
-import           Control.Monad (replicateM, msum, replicateM_)
-import           Data.Char     (isNumber, digitToInt)
-import           Data.Maybe    (fromJust)
-import qualified Data.Map      as M
+import           Control.Monad (msum, replicateM, replicateM_)
+import           Data.Char     (digitToInt, isNumber)
 import qualified Data.Foldable as F
+import qualified Data.Map      as M
+import           Data.Maybe    (fromJust)
 
 --------------------------------------------------------------------------------
 -- Cell represents a cell in the sudoku grid. Contains a possibility of digits,
@@ -30,7 +30,7 @@ type Sudoku = M.Map Tile Cell
 parseSudoku :: IO Sudoku
 parseSudoku = do
     lines <- replicateM 9 getLine
-    return $ M.fromList $
+    return $ M.fromList
         [ (Tile r c, parseCell char)
         | (r, line) <- zip [0..] lines
         , (c, char) <- zip [0..] line ]
@@ -45,7 +45,7 @@ fixTile :: Tile -> Sudoku -> Maybe Sudoku
 fixTile (Tile r c) s = validate $ M.mapWithKey (filterCell $ s M.! Tile r c) s
   where
     dangerTile :: Tile -> Bool
-    dangerTile (Tile y x) 
+    dangerTile (Tile y x)
       | c == x && r == y    = False
       | c == x || r == y    = True
       | div r 3 == div y 3 && div c 3 == div x 3
@@ -98,7 +98,7 @@ solveSudoku = go (Tile 0 0) . return
     go (Tile r c) (Just s)
       | c >= 9      = go (Tile (r + 1) 0) $ Just s
       | r >= 9      = Just s
-      | otherwise   = case s M.! (Tile r c) of
+      | otherwise   = case s M.! Tile r c of
             E list -> let
                         tile = Tile r c
                         test n = go (Tile r $ c + 1) $
@@ -111,10 +111,10 @@ solveSudoku = go (Tile 0 0) . return
 -- solutions.
 main :: IO ()
 main = do
-    times <- (readLn :: IO Int)
-    replicateM_ times $ do 
+    times <- readLn :: IO Int
+    replicateM_ times $ do
         sudoku <- parseSudoku
         print $ solveSudoku $ fillSudoku sudoku
         _ <- getLine
         putStrLn ""
-    
+
