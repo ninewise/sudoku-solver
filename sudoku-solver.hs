@@ -5,6 +5,10 @@ import qualified Data.Foldable as F
 import qualified Data.Map      as M
 import           Data.Maybe    (fromJust)
 
+-- ghc --make -auto-all -caf-all -rtsopts -prof -O2 -fforce-recomp \
+--  sudoku-solver.hs
+-- ./sudoku-solver < sudoku.in +RTS -prof -sstderr
+
 --------------------------------------------------------------------------------
 -- Cell represents a cell in the sudoku grid. Contains a possibility of digits,
 -- a certain digit or is invalid.
@@ -44,11 +48,17 @@ parseSudoku = do
 fixTile :: Tile -> Sudoku -> Maybe Sudoku
 fixTile (Tile r c) s = validate $ M.mapWithKey (filterCell $ s M.! Tile r c) s
   where
+    divr :: Int
+    divr = div r 3
+
+    divc :: Int
+    divc = div c 3
+
     dangerTile :: Tile -> Bool
     dangerTile (Tile y x)
       | c == x && r == y    = False
       | c == x || r == y    = True
-      | div r 3 == div y 3 && div c 3 == div x 3
+      | divr == div y 3 && divc == div x 3
                             = True
       | otherwise           = False
 
