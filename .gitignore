@@ -5,4 +5,6 @@ cabal-dev
 *.chi
 *.chs.h
 .virthualenv
+*.prof
 sudoku-solver
+concurrent

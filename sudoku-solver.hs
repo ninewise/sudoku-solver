@@ -18,6 +18,7 @@ data Cell = E [Int] | D Int | X
 instance Show Cell where
     show (E l)  = "E " ++ concatMap show l
     show (D n)  = show n
+    show (X)    = show "X"
 
 --------------------------------------------------------------------------------
 -- Tile is the location of a cell in the sudoku grid.
