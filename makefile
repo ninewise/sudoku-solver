@@ -8,3 +8,6 @@ sudoku-solver: sudoku-solver.hs
 
 concurrent: concurrent.hs
 	ghc concurrent.hs
+
+run: concurrent
+	./concurrent < concurrent.in
