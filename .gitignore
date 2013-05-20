@@ -8,3 +8,8 @@ cabal-dev
 *.prof
 sudoku-solver
 concurrent
+declarative-count
+explicit-count
+*.aux
+*.log
+*.pdf

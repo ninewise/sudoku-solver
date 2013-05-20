@@ -10,6 +10,7 @@
 
 \definecolor{mygray}{rgb}{0.4,0.4,0.4}
 \definecolor{mymauve}{RGB}{235,225,223}
+\definecolor{mygreen}{RGB}{0,225,0}
 
 \lstset{ %
   backgroundcolor=\color{white},
@@ -400,11 +401,303 @@
                 statement: ``If n possibillites are limited to n cells within
                 one row, column or box, no other digits than these n can occur
                 here.''
+            \item \textbf{We stand united:} This, too, is a combination of web
+                strategies. They are called ``naked pairs'', ``naked tripples''
+                and so on. Naked pairs states that when two cells have the same
+                two possibilities (and no other), these possibilities cannot
+                occur in other cells of the same row, column or box, as they are
+                required to fill the pair. The same can be applied to any number
+                of cells: ``If n cells in the same row, column or box are
+                limited to the same n possibilities, these possibilities can be
+                scratched from the other cells in this row, column or box.''
             \item \textbf{Candidate lines:} If within a box, all possible
                 locations for a digit occur on one row or column, that digit
                 cannot occur elsewhere in that row or column.
         \end{itemize}
 
+    \end{subsection}
+
+
+    \begin{subsection}*{Choice of concurrency model}
+
+        I've chosen for the stateful concurrency model. This models allows me to
+        completely seperate the threads in an abstraction. I can use the
+        \texttt{MVar}'s as normal variables as long as I lock them, without the
+        need to think of what should happen first, ...
+
+        The way I've implemented it, the only thing threads do it scratching
+        possibilities, and filling in the variables when they're decided. If
+        between two call of a function, a possibility suddenly disappears, this
+        will give no trouble at all. Therefore, the threads only synchronize
+        when they notice they've stopped changing.
+
+        In case of message passing concurrency, I'd have to stop calculating and
+        check if any of the other threads made a change more regular. The
+        advantage would be, that message passing is more predictable. The cell
+        content wouldn't suddenly change, we'd consiently read the changes from
+        the messages. That's an advantage if you don't like the complexity of
+        locking, but requires more code.
+
+        Declarative concurrency wouldn't be very practical here, because we need
+        quite a lot of communication, and variables keep changing all the time.
+        We couldn't use dataflow variables for that, as they are monotonic. Our
+        threads wouldn't be able to run independently, which is another
+        disadvantage.
+
+    \end{subsection}
+
+
+    \begin{subsection}*{The concurrent code}
+
+        In this part, I'll explain the code I've used for the concurrent
+        implementation. I won't go through every part. For one, I'll skip
+        parsing, as the only difference with parsing ordinairy sudoku's is the
+        technical difficulty of using the \texttt{MVar}'s. Note that I've also
+        included a printer (\texttt{printSamurai}), which prints a nice Samurai
+        at it's current state, and a debug printer (\texttt{printSamurai'}),
+        which prints all possibilities for each cell.
+
+        This time, I'll start with the main method. The implementations of the
+        strategies are found below.
+
+        \begin{subsubsection}*{The main thread}
+
+            The main thread is the thread that starts the other threads to solve
+            the sudoku's in the corner, and solves the center sudoku itself.
+
+            \begin{lstlisting}
+            main :: IO ()
+            main = do
+                initialSamurai <- parseSamurai
+                solvedSamurai  <- samuraiLooper initialSamurai
+                printSamurai solvedSamurai
+            \end{lstlisting}
+
+            It makes use of several subfunctions. First is parses the samurai
+            from standard in, then it solve it in a loop, after which it prints.
+            The \texttt{samuraiLooper} is responsible for the synchronisation
+            of the threads.
+
+            \begin{lstlisting}
+            samuraiLooper :: Samurai -> IO Samurai
+            samuraiLooper (Samurai ul ur ll lr ce) = do
+                locks <- replicateM 5 $ newMVar True
+                let [ullock, urlock, lllock, lrlock, celock] = locks
+                _ <- forkIO $ sudokuLooper ullock ul
+                _ <- forkIO $ sudokuLooper urlock ur
+                _ <- forkIO $ sudokuLooper lllock ll
+                _ <- forkIO $ sudokuLooper lrlock lr
+                sudokuLooper celock ce
+                changes <- mapM takeMVar locks
+                if or changes
+                    then samuraiLooper $ Samurai ul ur ll lr ce
+                    else return (Samurai ul ur ll lr ce)
+            \end{lstlisting}
+
+            In this function, we create 5 \texttt{MVar Bool}'s. These are locks
+            which contain a boolean value. In our case, this bool indicates
+            whether the sudoku changed. Initially, these are all true. Then, we
+            call the \texttt{sudokuLooper} function in 4 different threads, each
+            with a lock and a cornersudoku. We call the \texttt{sudokuLooper}
+            for the center sudoku in this thread.
+
+            Next, using the locks as a semaphore, we wait until every thread has
+            placed a bool into it's lock. If none of the threads has changed
+            anything, we return the samurai as the final solution. Otherwise, we
+            call this function recursively.
+
+            \begin{lstlisting}
+            sudokuLooper :: MVar Bool -> Sudoku -> IO ()
+            sudokuLooper lock sudoku = do
+                _ <- takeMVar lock
+                (_, change) <- solveSudokuStep (sudoku, True)
+                _ <- untilM (not . snd) solveSudokuStep (sudoku, change)
+                putMVar lock change
+            \end{lstlisting}
+
+            The loop for a single sudoku happens in \texttt{sudokuLooper}. First
+            of all, we take the lock on this sudoku, so the main thread has to
+            wait on us. Then, we execute a single solutionstep. We remember
+            whether this step changed anything. We then loop these solutionsteps
+            until no more change occurs. At last, we release the lock, by
+            putting in whether we changed anything or not.
+
+            \begin{lstlisting}
+            solveSudokuStep :: (Sudoku, Bool) -> IO (Sudoku, Bool)
+            solveSudokuStep (sudoku, _) = do
+                sudoku' <- removeClashes sudoku >>= weStandUnited >>= theseCellsAreBelongToUs >>= candidateLine
+                fixSingles sudoku'
+            \end{lstlisting}
+
+            And at last, the \texttt{solveSudokuStep} function calls each
+            strategy once on the sudoku, and decides the cells with only one
+            possibility left.
+
+        \end{subsubsection}
+
+        \begin{subsubsection}*{Remove clashes}
+
+            \begin{lstlisting}
+            removeClashes :: Sudoku -> IO Sudoku
+            removeClashes sudoku = F.foldrM fixTile sudoku (M.keys sudoku)
+              where
+                fixTile :: Tile -> Sudoku -> IO Sudoku
+                fixTile (Tile r c) _ = F.foldrM (filterTile $ Tile r c) sudoku (M.keys sudoku)
+
+                filterTile :: Tile -> Tile -> Sudoku -> IO Sudoku
+                filterTile fixed tofix _ = if clashingTiles fixed tofix
+                    then do
+                        fixed_cell <- readMVar $ sudoku M.! fixed
+                        modifyMVar_ (sudoku M.! tofix) (filterCell fixed_cell)
+                        return sudoku
+                    else return sudoku
+
+                filterCell :: Cell -> Cell -> IO Cell
+                filterCell (D n) (E ds) = return $ E $ filter (/= n) ds
+                filterCell _ t          = return t
+            \end{lstlisting}
+
+        \end{subsubsection}
+
+
+        \begin{subsubsection}*{These cells are belong to us}
+
+            \begin{lstlisting}
+            theseCellsAreBelongToUs :: Sudoku -> IO Sudoku
+            theseCellsAreBelongToUs sudoku = F.foldrM go sudoku parts
+              where
+                go :: [Tile] -> Sudoku -> IO Sudoku
+                go part _ = filterOnLength <$> patterns >>= write
+                  where
+                    patterns :: IO (Map [Int] [Int])
+                    patterns = F.foldlM insertIndices empty [1..9]
+
+                    -- Pairs op list of indices and the digits on those indices.
+                    insertIndices :: Map [Int] [Int] -> Int -> IO (Map [Int] [Int])
+                    insertIndices m n = do
+                        is <- indices n part sudoku
+                        return $ M.alter (Just . (n:) . F.concat) is m
+
+                    -- Where the list of indices has the same length as the digits on those
+                    -- indices.
+                    filterOnLength :: Map [Int] [Int] -> Map [Int] [Int]
+                    filterOnLength = M.filterWithKey ((==) `on` length)
+
+                    -- Write the digits on the indices.
+                    write :: Map [Int] [Int] -> IO Sudoku
+                    write m = do
+                        F.mapM_ (\\(k, v) ->
+                                    F.mapM_ (\i ->
+                                        modifyMVar_ (sudoku M.! (part !! i)) $ \cell -> case cell of
+                                            D d -> return $ D d
+                                            E _ -> return $ E v
+                                            X   -> return X
+                                    ) k
+                                ) $ M.toList m
+                        return sudoku
+            \end{lstlisting}
+
+        \end{subsubsection}
+
+
+        \begin{subsubsection}*{We stand united}
+
+            \begin{lstlisting}
+            weStandUnited :: Sudoku -> IO Sudoku
+            weStandUnited sudoku = F.foldlM go sudoku parts
+              where
+                go :: Sudoku -> [Tile] -> IO Sudoku
+                go _ part = filterOnLength <$> (F.foldlM insertPossibilities first $ zip part [0..]) >>= write
+                  where
+                    first = M.singleton [] [] :: Map [Int] [Int]
+
+                    insertPossibilities :: Map [Int] [Int] -> (Tile, Int) -> IO (Map [Int] [Int])
+                    insertPossibilities m (tile, i) = do
+                        cell <- readMVar (sudoku M.! tile)
+                        let x = case cell of
+                                D _ -> m
+                                E d -> M.fromListWith merge $ concatMap (\(k, v) -> posses k v i $ merge k d) $ M.toList m
+                                X   -> m
+                        return x
+
+                    --
+                    posses :: [Int] -> [Int] -> Int -> [Int] -> [([Int], [Int])]
+                    posses k1 is i k2
+                      | k1 == k2  = [(k1, merge [i] is)]
+                      | otherwise = [(k1, is), (k2, merge [i] is)]
+
+                    -- Where the list of indices has the same length as the digits on those
+                    -- indices.
+                    filterOnLength :: Map [Int] [Int] -> Map [Int] [Int]
+                    filterOnLength = M.filterWithKey ((==) `on` length)
+
+                    write :: Map [Int] [Int] -> IO Sudoku
+                    write = F.foldrM scratch sudoku . M.toList
+
+                    scratch :: ([Int], [Int]) -> Sudoku -> IO Sudoku
+                    scratch (ps, is) _ = F.foldrM (\i _ -> do
+                            let mvar = (sudoku M.! (part !! i))
+                            cell <- takeMVar mvar
+                            putMVar mvar $ case cell of
+                                E d -> E $ d \\ ps
+                                x   -> x
+                            return sudoku
+                        ) sudoku $ [0..8] \\ is
+            \end{lstlisting}
+
+        \end{subsubsection}
+
+
+        \begin{subsubsection}*{Candidate lines}
+
+            \begin{lstlisting}
+            candidateLine :: Sudoku -> IO Sudoku
+            candidateLine sudoku = F.foldrM go sudoku blocks
+              where
+                go :: [Tile] -> Sudoku -> IO Sudoku
+                go block _ = do
+                    (h, v) <- rowcolWise block
+                    mapM_ (scratch (\r -> filter (not . inRow) [Tile r c | c <- [0..8]])) $ M.toList $ toIndexDigits $ onlyOne h
+                    mapM_ (scratch (\c -> filter (not . inCol) [Tile r c | r <- [0..8]])) $ M.toList $ toIndexDigits $ onlyOne v
+                    return sudoku
+                  where
+                    rbounds = ( minimum $ map getR block, maximum $ map getR block )
+                    cbounds = ( minimum $ map getC block, maximum $ map getC block )
+                    inCol (Tile r _) = fst rbounds <= r && r <= snd rbounds
+                    inRow (Tile _ c) = fst cbounds <= c && c <= snd cbounds
+
+                    scratch :: (Int -> [Tile]) -> (Int, [Int]) -> IO ()
+                    scratch tiles (i, ds) = mapM_
+                        (\t -> modifyMVar_ (sudoku M.! t)
+                                (\cell -> return $ case cell of
+                                    E d -> E $ d \\ ds
+                                    x   -> x
+                                )
+                        ) $ tiles i
+                
+                -- Maps each index on the rows/cols it's on.
+                rowcolWise :: [Tile] -> IO (Map Int [Int], Map Int [Int])
+                rowcolWise block = F.foldrM
+                    (\tile (h, v) -> do
+                        cell <- readMVar (sudoku M.! tile)
+                        return $ case cell of
+                            D d  -> (ins tile (getR) h d, ins tile (getC) v d)
+                            E ds -> (foldl (ins tile $ getR) h ds, foldl (ins tile $ getC) v ds)
+                            X    -> (h, v)
+                    ) (empty, empty) block
+                  where ins t f m d = M.alter (Just . (merge [f t]) . F.concat) d m
+
+                onlyOne :: Map Int [Int] -> Map Int Int
+                onlyOne = M.mapMaybe (\x -> if length x == 1 then Just (head x) else Nothing)
+
+                toIndexDigits :: Map Int Int -> Map Int [Int]
+                toIndexDigits = (M.fromListWith (merge)) . (map (\\(d, i) -> (i, [d]))) . M.toList
+            \end{lstlisting}
+
+        \end{subsubsection}
+
+
+    \end{subsection}
 
 \end{section}
 
