@@ -1,0 +1,412 @@
+\documentclass[a4paper,12pt]{article}
+
+\usepackage{fullpage}
+\usepackage{listings}
+\usepackage{color}
+\usepackage{lstautogobble}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{12pt}
+
+\definecolor{mygray}{rgb}{0.4,0.4,0.4}
+\definecolor{mymauve}{RGB}{235,225,223}
+
+\lstset{ %
+  backgroundcolor=\color{white},
+  basicstyle=\ttfamily,
+  breakatwhitespace=true,
+  breaklines=true,
+  captionpos=b,
+  commentstyle=\color{mygreen},
+  keepspaces=true,
+  keywordstyle=\color{blue},
+  language=Haskell,
+  morekeywords={data},
+  numbers=left,
+  numbersep=5pt,
+  numberstyle=\tiny\color{mygray},
+  rulecolor=\color{black},
+  showspaces=false,
+  showstringspaces=false,
+  showtabs=false,
+  stepnumber=1,
+  stringstyle=\color{mymauve},
+  tabsize=2,
+  title=\lstname,
+  autogobble=true
+}
+
+\author{Felix Van der Jeugt}
+\title{
+    Programming Languages Assignments
+}
+
+\begin{document}
+
+
+
+\maketitle
+
+
+
+\begin{section}*{Preface}
+
+    Before I begin my actual report, I would explain my choice of programming
+    language. I have used \textit{Haskell} for my entire project. I've used
+    this language before, so it seemed right to extends my knowledge of it with
+    concurrency.
+
+\end{section}
+
+
+\begin{section}*{Assignment 1 - Declarative versus Stateful Model}
+
+
+    \begin{subsection}*{The Solver}
+
+
+        \begin{subsubsection}*{Choice of algorithms}
+
+            For the linear solver of sudoku's, a recursive backtracking solution seemed the
+            best choice. As there are no other thread to communicate with, we can just pass
+            around the sudoku as an argument, never using state.
+
+            However, once my backtracking program was finished, it seemed quite slow. I
+            was able to speed it up a lot by preprocessing the sudoku, scratching all
+            contradicting solutions.
+
+        \end{subsubsection}
+
+
+        \begin{subsubsection}*{Choice of datastructures}
+
+            I modelled a sudoku as an associative structure. By mapping tiles, a two
+            dimensional location, on cells, which contains the digits, I can access the data
+            in logarithmic complexity.
+
+            In Haskell, this is noted as follows:
+
+            \begin{lstlisting}
+                type Sudoku = M.Map Tile Cell
+                data Tile = Tile Int Int
+                    deriving (Eq, Show, Ord)
+                data Cell = E [Int] | D Int | X
+                    deriving (Eq)
+            \end{lstlisting}
+
+            As you can see in the code, I've enable a \texttt{Cell} to either hold a list of
+            possibilities, a decided digit, or an X. This \texttt{X} indicates either an
+            invalid content, or is used as a placeholder.
+
+        \end{subsubsection}
+
+
+        \begin{subsubsection}*{Parsing the Sudoku}
+
+            After modelling the sudoku and thinking about the algorithms, I wrote a parser.
+            This would simplify and speed up the process of testing and debugging.
+
+            \begin{lstlisting}
+            parseSudoku :: IO Sudoku
+            parseSudoku = do
+                lines <- replicateM 9 getLine
+                return $ M.fromList
+                    [ (Tile r c, parseCell char)
+                    | (r, line) <- zip [0..] lines
+                    , (c, char) <- zip [0..] line ]
+              where
+                parseCell char | isNumber char  = D $ digitToInt char
+                               | otherwise      = E [1..9]
+            \end{lstlisting}
+
+            This will read sudoku's from \texttt{stdin}, which are formatted like this:
+
+            \begin{verbatim}
+            ----135--
+            ---6-7---
+            ------2-1
+            -9-----65
+            5-------7
+            28-----9-
+            6-7------
+            ---7-9---
+            --482----
+            \end{verbatim}
+
+            I simply read all the characters, parsing them as a decided digit (\texttt{D (
+            digitToInt char)}) if the character is a number, and parsing them as either of 1
+            to 9 (\texttt{E [1..9]}) if it's not a number. With the \texttt{zip} function I
+            index first each line (row), and then each character in that line.
+
+        \end{subsubsection}
+
+
+        \begin{subsubsection}*{Avoiding clashes}
+
+            Next comes the most important function in my program,
+            \texttt{fixTile}. This function takes a tile, assumes it's a correct
+            decided digit, and removes all possibilities contradicting this from
+            the sudoku.
+
+            \begin{lstlisting}
+            fixTile :: Tile -> Sudoku -> Maybe Sudoku
+            fixTile (Tile r c) s = validate $ M.mapWithKey (filterCell $ s M.! Tile r c) s
+            \end{lstlisting}
+
+            As you can see, the method returns a \texttt{Maybe Sudoku}, which
+            means that it will return either \texttt{Just} a sudoku, or
+            \texttt{Nothing}. This is a way of indicating the function can fail,
+            in this case when two decided digits contradict each other.
+
+            Inside this function, \texttt{M.mapWithKey} is used. This is a built
+            in function that will reform a Map. As parameter it takes a
+            function which it will call on all entries in the map. The results of
+            these functions will form the new Map. We validate the resulting
+            Map, which means we check if there were no contradictions.
+
+            \begin{lstlisting}
+            filterCell :: Cell -> Tile -> Cell -> Cell
+            filterCell (D a) t (D b)
+              | a == b && dangerTile t  = X
+              | otherwise               = D b
+            filterCell (D a) t (E ds)
+              | dangerTile t            = E (filter (/= a) ds)
+              | otherwise               = E ds
+            filterCell (E ds) _ c       = c
+            \end{lstlisting}
+
+            This function filters the decided digit from the other cells. It
+            takes as parameters the cell of the decided digit, the location of
+            the cell we're filtering and the cell we're filtering.
+
+            The last line takes care of people who call this function with an
+            undecided cell: It ignores them. The first match (line 2-4) checks
+            that if both are decided cells and on the same row/column/box, they
+            do not contradict each other. If they do, it places an \texttt{X},
+            so the \texttt{validate} can see this.
+
+            The second match is for undecided cells. If they lay in the same
+            row, column or box of this cell, we filter the decided digit from
+            it's possibilities.
+
+        \end{subsubsection}
+
+
+        \begin{subsubsection}*{The Preprocessing}
+
+            When you've obtained the \texttt{fixTile} function, the
+            preprocessing isn't that hard. You just call \texttt{fixTile} once
+            for every tile, repeating this until there is no more change in the
+            sudoku:
+            \begin{lstlisting}
+            iterateFixes :: Sudoku -> Maybe Sudoku
+            iterateFixes sudoku = F.foldrM fixTile sudoku (M.keys sudoku)
+
+            fixSingles :: Sudoku -> Sudoku
+            fixSingles = M.map go
+              where
+                go (E [n]) = D n
+                go x       = x
+
+            fillSudoku :: Sudoku -> Sudoku
+            fillSudoku sudoku = fst (until noChange nextIteration (M.empty, sudoku))
+              where
+                noChange (a, b) = a == b
+                nextIteration (_, old) = (old, fixSingles $ fromJust $ iterateFixes old)
+            \end{lstlisting}
+
+            We've got \texttt{iterateFixes} which calls \texttt{fixTile} for
+            every tile (\texttt{M.keys sudoku}) and \texttt{fixSingles}, which
+            makes a decided digit from every list of possibilities with only one
+            option left. \texttt{fillSudoku} iterates thses two until there is
+            no more change.
+
+        \end{subsubsection}
+
+
+        \begin{subsubsection}*{The backtracking}
+
+            What's left is the backtracking part of the program. It's called
+            \texttt{solveSudoku}:
+            \begin{lstlisting}
+            solveSudoku :: Sudoku -> Maybe Sudoku
+            solveSudoku = go (Tile 0 0) . return
+              where
+                go :: Tile -> Maybe Sudoku -> Maybe Sudoku
+                go _ Nothing = Nothing
+                go (Tile r c) (Just s)
+                  | c >= 9      = go (Tile (r + 1) 0) $ Just s
+                  | r >= 9      = Just s
+                  | otherwise   = case s M.! Tile r c of
+                        E list -> let
+                                    tile = Tile r c
+                                    test n = go (Tile r $ c + 1) $
+                                                fixTile tile $ M.insert tile (D n) s
+                                  in msum $ map test list
+                        D n -> go (Tile r $ c + 1) (Just s)
+            \end{lstlisting}
+
+            The function just call the interal \texttt{go} function with the
+            starting point, the upperleft tile. This function is split into 5
+            cases:
+            \begin{enumerate}
+                \item \textbf{line 5:} If we don't get a sudoku, we can't just
+                    make up a sudoku, so we return \texttt{Nothing}.
+                \item \textbf{line 7:} If our walker goes past the last column,
+                    we continue in the next row.
+                \item \textbf{line 8:} If we're past the last row, we've
+                    completed the sudoku, so we return \texttt{Just} that.
+                \item \textbf{line 15:} If the current tile points at a decided
+                    digit, we continue with the next.
+                \item \textbf{line 9-14:} The current tile points a a list of
+                    possibilities. We insert each of these possibilities as a
+                    decided digit, fix it with \texttt{fixTile}, and continue on
+                    the next tile. \texttt{msum} takes this list of
+                    \texttt{Maybe Sudoku}'s, and returns the first that is not
+                    \texttt{Nothing}. Thanks to Haskell's laziness, only the
+                    first \texttt{Just} sudoku will be calculated.
+            \end{enumerate}
+            
+        \end{subsubsection}
+
+        
+        \begin{subsubsection}*{The main method}
+
+            Holding this all together is the main method:
+            \begin{lstlisting}
+            main :: IO ()
+            main = do
+                times <- readLn :: IO Int
+                replicateM_ times $ do
+                    sudoku <- parseSudoku
+                    print $ solveSudoku (fillSudoku sudoku)
+                    _ <- getLine
+                    putStrLn ""
+            \end{lstlisting}
+
+            This will read an integer from the first line of input, and parse
+            and solve that many sudoku's. Note that each of thses sudoku's
+            should be followed by one unparsed line.
+
+        \end{subsubsection}
+
+    \end{subsection}
+
+
+
+    \begin{subsection}*{Counting Function Calls}
+
+        In stead of counting the 5 most common called functions, I've counted
+        the 3 most interesting functions. I am aware this is not according to
+        the assignment, but the five most called functions were not interesting
+        at all, apart from the fact that I've got only 5 toplevel functions, not
+        counting the main function.
+
+        I've decided to count \texttt{fixTile}, \texttt{nextIteration} and
+        \texttt{go}. The source code for explicit state and declarative counting
+        can be found in \texttt{explicit-count.hs} and
+        \texttt{declarative-count.hs} respectively. I won't go into the details
+        of the changes here, just mention the constructs I used.
+
+        For the explicit state, I've used a Haskell builtin named
+        \texttt{IORef}. This can be viewed as a cell of memory in the
+        \textit{world} of the IO Monad. This world is an state which is passed
+        around implicitely. You still have to pass around the reference to this
+        cell.
+
+        Withing the declarative model, I've added extra parameters to the
+        functions, to pass in and return (after increasing) the count.
+
+        Now as for which of these I prefer, I'd say the declarative way. Even
+        though the stateful method is more concise, it's considered bad practice
+        in Haskell to use it a lot. This is because it can introduce strange
+        bugs to your code, as functions will no longer return the same result
+        for the same parameters. If it is used well, explicit state can simplify
+        your code a lot, though.
+
+        I must mention here that there seems to be a bug in the either counting
+        method, because they claim different results.
+
+    \end{subsection}
+
+
+\end{section}
+
+
+
+\begin{section}*{Assignment 2 - Introducing Concurrency}
+
+
+    \begin{subsection}*{Choices of datastructures}
+
+        I had to make very little changes to the datastructure to enable
+        concurrent programming. Instead of mapping tiles on cells, I've mapped
+        tiles on a sort of locked cell, called \texttt{MVar} in Haskell.
+
+        \texttt{MVar}'s aren't actual locks, but can be used that way. They are
+        either empty (taking, locked) or full (released). By putting a part of
+        code between a \texttt{takeMVar} and a \texttt{putMVar}, you can make it
+        exclusive. Further, \texttt{takeMVar} returns the value currently kept
+        in the \texttt{Mvar}, while \texttt{putMVar} will store a new value. You
+        can also use \texttt{modifyMVar}, which takes a function to atomically
+        modify the value held by the \texttt{MVar}. At last, \texttt{takeMVar}
+        and \texttt{modifyMVar} will wait for the \texttt{MVar} to be full.
+
+        From this explanation, it's probably clear that I mean to use the
+        stateful concurrent model.
+
+        \begin{lstlisting}
+        data Cell = E [Int] | D Int | X
+            deriving (Eq)
+        data Tile = Tile { getR :: Int, getC :: Int }
+            deriving (Eq, Show, Ord)
+        type Sudoku = M.Map Tile (MVar Cell)
+        data Samurai = Samurai { getUL :: Sudoku
+                               , getUR :: Sudoku
+                               , getLL :: Sudoku
+                               , getLR :: Sudoku
+                               , getCE :: Sudoku }
+        \end{lstlisting}
+
+    \end{subsection}
+
+
+    \begin{subsection}*{Choices of algorithms}
+
+        Because backtracking would mean an awful lot of communication between
+        the threads, which significantly complixifies programming, I've fallen
+        back to human solving strategies.
+
+        I've implemented a number of strategies found either by myself or with
+        help of the web. Using human strategies, of course, means that I cannot
+        solve every possible sudoku, though most are within the league of my
+        program. All of these techniques work on the possibilities of digits for
+        a certain cell, by scratching the contradictions. The techniques I've
+        used use listed below:
+
+        \begin{itemize}
+            \item \textbf{Remove clashes:} This is probably the most obvious
+                technique, and I've used it in the single sudoku solver as well:
+                For each decided digit, remove that digit from the other cells
+                in the row, column or box.
+            \item \textbf{These cells are belong to us:} This is a combination
+                of several strategies found on the internet. Most sources on the
+                internet mention ``single position'' (there's only one position
+                for this digit in the entire row, column or box), ``hidden
+                pairs'' (the cells A and B both have (among others)
+                possibilities 1 and 2, and the 1 and 2 do not occur elsewhere
+                within this row/column/box, then we can exlude those others),
+                ``hidden tripples'', ... These can be combined into following
+                statement: ``If n possibillites are limited to n cells within
+                one row, column or box, no other digits than these n can occur
+                here.''
+            \item \textbf{Candidate lines:} If within a box, all possible
+                locations for a digit occur on one row or column, that digit
+                cannot occur elsewhere in that row or column.
+        \end{itemize}
+
+
+\end{section}
+
+\end{document}
+
