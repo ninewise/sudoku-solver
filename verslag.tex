@@ -68,20 +68,20 @@
 
         \begin{subsubsection}*{Choice of algorithms}
 
-            For the linear solver of sudoku's, a recursive backtracking solution seemed the
+            For the linear solver of Sudoku's, a recursive backtracking solution seemed the
             best choice. As there are no other thread to communicate with, we can just pass
-            around the sudoku as an argument, never using state.
+            around the Sudoku as an argument, never using state.
 
             However, once my backtracking program was finished, it seemed quite slow. I
-            was able to speed it up a lot by preprocessing the sudoku, scratching all
+            was able to speed it up a lot by preprocessing the Sudoku, scratching all
             contradicting solutions.
 
         \end{subsubsection}
 
 
-        \begin{subsubsection}*{Choice of datastructures}
+        \begin{subsubsection}*{Choice of data structures}
 
-            I modelled a sudoku as an associative structure. By mapping tiles, a two
+            I modeled a Sudoku as an associative structure. By mapping tiles, a two
             dimensional location, on cells, which contains the digits, I can access the data
             in logarithmic complexity.
 
@@ -104,7 +104,7 @@
 
         \begin{subsubsection}*{Parsing the Sudoku}
 
-            After modelling the sudoku and thinking about the algorithms, I wrote a parser.
+            After modeling the Sudoku and thinking about the algorithms, I wrote a parser.
             This would simplify and speed up the process of testing and debugging.
 
             \begin{lstlisting}
@@ -120,7 +120,7 @@
                                | otherwise      = E [1..9]
             \end{lstlisting}
 
-            This will read sudoku's from \texttt{stdin}, which are formatted like this:
+            This will read Sudoku's from \texttt{stdin}, which are formatted like this:
 
             \begin{verbatim}
             ----135--
@@ -147,7 +147,7 @@
             Next comes the most important function in my program,
             \texttt{fixTile}. This function takes a tile, assumes it's a correct
             decided digit, and removes all possibilities contradicting this from
-            the sudoku.
+            the Sudoku.
 
             \begin{lstlisting}
             fixTile :: Tile -> Sudoku -> Maybe Sudoku
@@ -155,7 +155,7 @@
             \end{lstlisting}
 
             As you can see, the method returns a \texttt{Maybe Sudoku}, which
-            means that it will return either \texttt{Just} a sudoku, or
+            means that it will return either \texttt{Just} a Sudoku, or
             \texttt{Nothing}. This is a way of indicating the function can fail,
             in this case when two decided digits contradict each other.
 
@@ -198,7 +198,7 @@
             When you've obtained the \texttt{fixTile} function, the
             preprocessing isn't that hard. You just call \texttt{fixTile} once
             for every tile, repeating this until there is no more change in the
-            sudoku:
+            Sudoku:
             \begin{lstlisting}
             iterateFixes :: Sudoku -> Maybe Sudoku
             iterateFixes sudoku = F.foldrM fixTile sudoku (M.keys sudoku)
@@ -219,7 +219,7 @@
             We've got \texttt{iterateFixes} which calls \texttt{fixTile} for
             every tile (\texttt{M.keys sudoku}) and \texttt{fixSingles}, which
             makes a decided digit from every list of possibilities with only one
-            option left. \texttt{fillSudoku} iterates thses two until there is
+            option left. \texttt{fillSudoku} iterates these two until there is
             no more change.
 
         \end{subsubsection}
@@ -247,16 +247,16 @@
                         D n -> go (Tile r $ c + 1) (Just s)
             \end{lstlisting}
 
-            The function just call the interal \texttt{go} function with the
-            starting point, the upperleft tile. This function is split into 5
+            The function just call the internal \texttt{go} function with the
+            starting point, the upper left tile. This function is split into 5
             cases:
             \begin{enumerate}
-                \item \textbf{line 5:} If we don't get a sudoku, we can't just
-                    make up a sudoku, so we return \texttt{Nothing}.
+                \item \textbf{line 5:} If we don't get a Sudoku, we can't just
+                    make up a Sudoku, so we return \texttt{Nothing}.
                 \item \textbf{line 7:} If our walker goes past the last column,
                     we continue in the next row.
                 \item \textbf{line 8:} If we're past the last row, we've
-                    completed the sudoku, so we return \texttt{Just} that.
+                    completed the Sudoku, so we return \texttt{Just} that.
                 \item \textbf{line 15:} If the current tile points at a decided
                     digit, we continue with the next.
                 \item \textbf{line 9-14:} The current tile points a a list of
@@ -265,7 +265,7 @@
                     the next tile. \texttt{msum} takes this list of
                     \texttt{Maybe Sudoku}'s, and returns the first that is not
                     \texttt{Nothing}. Thanks to Haskell's laziness, only the
-                    first \texttt{Just} sudoku will be calculated.
+                    first \texttt{Just} Sudoku will be calculated.
             \end{enumerate}
             
         \end{subsubsection}
@@ -286,7 +286,7 @@
             \end{lstlisting}
 
             This will read an integer from the first line of input, and parse
-            and solve that many sudoku's. Note that each of thses sudoku's
+            and solve that many Sudoku's. Note that each of these Sudoku's
             should be followed by one unparsed line.
 
         \end{subsubsection}
@@ -300,7 +300,7 @@
         In stead of counting the 5 most common called functions, I've counted
         the 3 most interesting functions. I am aware this is not according to
         the assignment, but the five most called functions were not interesting
-        at all, apart from the fact that I've got only 5 toplevel functions, not
+        at all, apart from the fact that I've got only 5 top level functions, not
         counting the main function.
 
         I've decided to count \texttt{fixTile}, \texttt{nextIteration} and
@@ -309,10 +309,10 @@
         \texttt{declarative-count.hs} respectively. I won't go into the details
         of the changes here, just mention the constructs I used.
 
-        For the explicit state, I've used a Haskell builtin named
+        For the explicit state, I've used a Haskell built-in named
         \texttt{IORef}. This can be viewed as a cell of memory in the
         \textit{world} of the IO Monad. This world is an state which is passed
-        around implicitely. You still have to pass around the reference to this
+        around implicitly. You still have to pass around the reference to this
         cell.
 
         Withing the declarative model, I've added extra parameters to the
@@ -338,9 +338,9 @@
 \begin{section}*{Assignment 2 - Introducing Concurrency}
 
 
-    \begin{subsection}*{Choices of datastructures}
+    \begin{subsection}*{Choices of data structures}
 
-        I had to make very little changes to the datastructure to enable
+        I had to make very little changes to the data structure to enable
         concurrent programming. Instead of mapping tiles on cells, I've mapped
         tiles on a sort of locked cell, called \texttt{MVar} in Haskell.
 
@@ -375,19 +375,19 @@
     \begin{subsection}*{Choices of algorithms}
 
         Because backtracking would mean an awful lot of communication between
-        the threads, which significantly complixifies programming, I've fallen
+        the threads, which significantly complexes programming, I've fallen
         back to human solving strategies.
 
         I've implemented a number of strategies found either by myself or with
         help of the web. Using human strategies, of course, means that I cannot
-        solve every possible sudoku, though most are within the league of my
+        solve every possible Sudoku, though most are within the league of my
         program. All of these techniques work on the possibilities of digits for
         a certain cell, by scratching the contradictions. The techniques I've
         used use listed below:
 
         \begin{itemize}
             \item \textbf{Remove clashes:} This is probably the most obvious
-                technique, and I've used it in the single sudoku solver as well:
+                technique, and I've used it in the single Sudoku solver as well:
                 For each decided digit, remove that digit from the other cells
                 in the row, column or box.
             \item \textbf{These cells are belong to us:} This is a combination
@@ -396,13 +396,13 @@
                 for this digit in the entire row, column or box), ``hidden
                 pairs'' (the cells A and B both have (among others)
                 possibilities 1 and 2, and the 1 and 2 do not occur elsewhere
-                within this row/column/box, then we can exlude those others),
-                ``hidden tripples'', ... These can be combined into following
-                statement: ``If n possibillites are limited to n cells within
+                within this row/column/box, then we can exclude those others),
+                ``hidden triples'', ... These can be combined into following
+                statement: ``If n possibilities are limited to n cells within
                 one row, column or box, no other digits than these n can occur
                 here.''
             \item \textbf{We stand united:} This, too, is a combination of web
-                strategies. They are called ``naked pairs'', ``naked tripples''
+                strategies. They are called ``naked pairs'', ``naked triples''
                 and so on. Naked pairs states that when two cells have the same
                 two possibilities (and no other), these possibilities cannot
                 occur in other cells of the same row, column or box, as they are
@@ -421,7 +421,7 @@
     \begin{subsection}*{Choice of concurrency model}
 
         I've chosen for the stateful concurrency model. This models allows me to
-        completely seperate the threads in an abstraction. I can use the
+        completely separate the threads in an abstraction. I can use the
         \texttt{MVar}'s as normal variables as long as I lock them, without the
         need to think of what should happen first, ...
 
@@ -434,7 +434,7 @@
         In case of message passing concurrency, I'd have to stop calculating and
         check if any of the other threads made a change more regular. The
         advantage would be, that message passing is more predictable. The cell
-        content wouldn't suddenly change, we'd consiently read the changes from
+        content wouldn't suddenly change, we'd consciently read the changes from
         the messages. That's an advantage if you don't like the complexity of
         locking, but requires more code.
 
@@ -451,7 +451,7 @@
 
         In this part, I'll explain the code I've used for the concurrent
         implementation. I won't go through every part. For one, I'll skip
-        parsing, as the only difference with parsing ordinairy sudoku's is the
+        parsing, as the only difference with parsing ordinary Sudoku's is the
         technical difficulty of using the \texttt{MVar}'s. Note that I've also
         included a printer (\texttt{printSamurai}), which prints a nice Samurai
         at it's current state, and a debug printer (\texttt{printSamurai'}),
@@ -463,7 +463,7 @@
         \begin{subsubsection}*{The main thread}
 
             The main thread is the thread that starts the other threads to solve
-            the sudoku's in the corner, and solves the center sudoku itself.
+            the Sudoku's in the corner, and solves the center Sudoku itself.
 
             \begin{lstlisting}
             main :: IO ()
@@ -475,7 +475,7 @@
 
             It makes use of several subfunctions. First is parses the samurai
             from standard in, then it solve it in a loop, after which it prints.
-            The \texttt{samuraiLooper} is responsible for the synchronisation
+            The \texttt{samuraiLooper} is responsible for the synchronization
             of the threads.
 
             \begin{lstlisting}
@@ -495,14 +495,14 @@
             \end{lstlisting}
 
             In this function, we create 5 \texttt{MVar Bool}'s. These are locks
-            which contain a boolean value. In our case, this bool indicates
-            whether the sudoku changed. Initially, these are all true. Then, we
+            which contain a Boolean value. In our case, this Bool indicates
+            whether the Sudoku changed. Initially, these are all true. Then, we
             call the \texttt{sudokuLooper} function in 4 different threads, each
             with a lock and a cornersudoku. We call the \texttt{sudokuLooper}
-            for the center sudoku in this thread.
+            for the center Sudoku in this thread.
 
             Next, using the locks as a semaphore, we wait until every thread has
-            placed a bool into it's lock. If none of the threads has changed
+            placed a Bool into it's lock. If none of the threads has changed
             anything, we return the samurai as the final solution. Otherwise, we
             call this function recursively.
 
@@ -515,10 +515,10 @@
                 putMVar lock change
             \end{lstlisting}
 
-            The loop for a single sudoku happens in \texttt{sudokuLooper}. First
-            of all, we take the lock on this sudoku, so the main thread has to
-            wait on us. Then, we execute a single solutionstep. We remember
-            whether this step changed anything. We then loop these solutionsteps
+            The loop for a single Sudoku happens in \texttt{sudokuLooper}. First
+            of all, we take the lock on this Sudoku, so the main thread has to
+            wait on us. Then, we execute a single solution step. We remember
+            whether this step changed anything. We then loop these solution steps
             until no more change occurs. At last, we release the lock, by
             putting in whether we changed anything or not.
 
@@ -530,7 +530,7 @@
             \end{lstlisting}
 
             And at last, the \texttt{solveSudokuStep} function calls each
-            strategy once on the sudoku, and decides the cells with only one
+            strategy once on the Sudoku, and decides the cells with only one
             possibility left.
 
         \end{subsubsection}
