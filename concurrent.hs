@@ -1,11 +1,12 @@
 --------------------------------------------------------------------------------
 import           Control.Concurrent (MVar, modifyMVar, modifyMVar_, newMVar,
-                                     readMVar)
+                                     putMVar, readMVar, takeMVar, forkIO)
 import           Control.Monad      (foldM, liftM, replicateM, when)
 import           Data.Char          (digitToInt, isNumber)
 import qualified Data.Foldable      as F
 import           Data.Function      (on)
 import           Data.Functor       ((<$>))
+import           Data.List          ((\\))
 import           Data.Map           (Map, empty)
 import qualified Data.Map           as M
 
@@ -22,7 +23,7 @@ instance Show Cell where
 
 --------------------------------------------------------------------------------
 -- Tile is the location of a cell in the sudoku grid.
-data Tile = Tile Int Int
+data Tile = Tile { getR :: Int, getC :: Int }
     deriving (Eq, Show, Ord)
 
 --------------------------------------------------------------------------------
@@ -91,10 +92,10 @@ emptySamurai = foldM putEmpty (Samurai empty empty empty empty empty)
 parseSamurai :: IO Samurai
 parseSamurai = do
     samurai <- emptySamurai
-    rows <- replicateM 21 getLine
+    rows' <- replicateM 21 getLine
     mapM_ (\(t, c) -> modifyCell samurai t $ \_ -> return c)
         [ (Tile r c, parseCell col)
-        | (r, row) <- zip [0..] rows
+        | (r, row) <- zip [0..] rows'
         , (c, col) <- zip [0..] row ]
     return samurai
   where
@@ -143,12 +144,10 @@ fixSingles :: Sudoku -> IO (Sudoku, Bool)
 fixSingles sudoku = F.foldrM go (sudoku, False) (M.keys sudoku)
   where
     go :: Tile -> (Sudoku, Bool) -> IO (Sudoku, Bool)
-    go tile (sudoku, changedBefore) = do
-        changed <- modifyMVar (sudoku M.! tile) $ \cell -> case cell of
-            (E [n]) -> do
-                putStrLn "HEY"
-                return (D n, True)
-            x       -> return (x, False)
+    go tile (_, changedBefore) = do
+        changed <- modifyMVar (sudoku M.! tile) $ \cell -> return $ case cell of
+            (E [n]) -> (D n, True)
+            x       -> (x, False)
         return (sudoku, changed || changedBefore)
 
 
@@ -168,10 +167,10 @@ removeClashes :: Sudoku -> IO Sudoku
 removeClashes sudoku = F.foldrM fixTile sudoku (M.keys sudoku)
   where
     fixTile :: Tile -> Sudoku -> IO Sudoku
-    fixTile (Tile r c) sudoku = F.foldrM (filterTile $ Tile r c) sudoku (M.keys sudoku)
+    fixTile (Tile r c) _ = F.foldrM (filterTile $ Tile r c) sudoku (M.keys sudoku)
 
     filterTile :: Tile -> Tile -> Sudoku -> IO Sudoku
-    filterTile fixed tofix sudoku = if clashingTiles fixed tofix
+    filterTile fixed tofix _ = if clashingTiles fixed tofix
         then do
             fixed_cell <- readMVar $ sudoku M.! fixed
             modifyMVar_ (sudoku M.! tofix) (filterCell fixed_cell)
@@ -190,14 +189,14 @@ oneOnOne :: Sudoku -> IO Sudoku
 oneOnOne sudoku = F.foldrM findSingle sudoku parts
   where
     findSingle :: [Tile] -> Sudoku -> IO Sudoku
-    findSingle part sudoku = F.foldrM go sudoku [1..9]
+    findSingle part _ = F.foldrM go sudoku [1..9]
       where
         go :: Int -> Sudoku -> IO Sudoku
-        go n sudoku = do
+        go n _ = do
             is <- indices n part sudoku
             case is of [i] -> modifyMVar_ (sudoku M.! (part !! i))
                                 (\d -> case d of
-                                        D d -> return $ D d
+                                        D x -> return $ D x
                                         E _ -> return $ E [n]
                                         X   -> return X
                                 )
@@ -214,7 +213,7 @@ theseCellsAreBelongToUs sudoku = F.foldrM go sudoku parts
   where
     -- find patterns like 01101 for 3 in [12,123,3,1,23]
     go :: [Tile] -> Sudoku -> IO Sudoku
-    go part sudoku = filterOnLength <$> patterns >>= write
+    go part _ = filterOnLength <$> patterns >>= write
       where
         patterns :: IO (Map [Int] [Int])
         patterns = F.foldlM insertIndices empty [1..9]
@@ -223,10 +222,7 @@ theseCellsAreBelongToUs sudoku = F.foldrM go sudoku parts
         insertIndices :: Map [Int] [Int] -> Int -> IO (Map [Int] [Int])
         insertIndices m n = do
             is <- indices n part sudoku
-            return $ M.alter ins is m
-              where
-                ins (Just ns) = Just $ n:ns
-                ins Nothing   = Just [n]
+            return $ M.alter (Just . (n:) . F.concat) is m
 
         -- Where the list of indices has the same length as the digits on those
         -- indices.
@@ -251,8 +247,93 @@ theseCellsAreBelongToUs sudoku = F.foldrM go sudoku parts
 -- [1, 2] and tile C contains [1, 3]. Then we can scratch the 1 from tile C, as
 -- writing a one there would leave us short a number to fill tile A and B.
 weStandUnited :: Sudoku -> IO Sudoku
-weStandUnited sudoku = undefined
+weStandUnited sudoku = F.foldlM go sudoku parts
+  where
+    go :: Sudoku -> [Tile] -> IO Sudoku
+    go _ part = filterOnLength <$> (F.foldlM insertPossibilities first $ zip part [0..]) >>= write
+      where
+        first = M.singleton [] [] :: Map [Int] [Int]
 
+        insertPossibilities :: Map [Int] [Int] -> (Tile, Int) -> IO (Map [Int] [Int])
+        insertPossibilities m (tile, i) = do
+            cell <- readMVar (sudoku M.! tile)
+            let x = case cell of
+                    D _ -> m
+                    E d -> M.fromListWith merge $ concatMap (\(k, v) -> posses k v i $ merge k d) $ M.toList m
+                    X   -> m
+            return x
+
+        --
+        posses :: [Int] -> [Int] -> Int -> [Int] -> [([Int], [Int])]
+        posses k1 is i k2
+          | k1 == k2  = [(k1, merge [i] is)]
+          | otherwise = [(k1, is), (k2, merge [i] is)]
+
+        -- Where the list of indices has the same length as the digits on those
+        -- indices.
+        filterOnLength :: Map [Int] [Int] -> Map [Int] [Int]
+        filterOnLength = M.filterWithKey ((==) `on` length)
+
+        write :: Map [Int] [Int] -> IO Sudoku
+        write = F.foldrM scratch sudoku . M.toList
+
+        scratch :: ([Int], [Int]) -> Sudoku -> IO Sudoku
+        scratch (ps, is) _ = F.foldrM (\i _ -> do
+                let mvar = (sudoku M.! (part !! i))
+                cell <- takeMVar mvar
+                putMVar mvar $ case cell of
+                    E d -> E $ d \\ ps
+                    x   -> x
+                return sudoku
+            ) sudoku $ [0..8] \\ is
+
+
+-- If within a block, all possible location of a digit occur on 1 row/column,
+-- that digit cannot occur elsewhere in the row/column.
+candidateLine :: Sudoku -> IO Sudoku
+candidateLine sudoku = F.foldrM go sudoku blocks
+  where
+    go :: [Tile] -> Sudoku -> IO Sudoku
+    go block _ = do
+        (h, v) <- rowcolWise block
+        mapM_ (scratch (\r -> filter (not . inRow) [Tile r c | c <- [0..8]])) $ M.toList $ toIndexDigits $ onlyOne h
+        mapM_ (scratch (\c -> filter (not . inCol) [Tile r c | r <- [0..8]])) $ M.toList $ toIndexDigits $ onlyOne v
+        return sudoku
+      where
+        rbounds = ( minimum $ map getR block, maximum $ map getR block )
+        cbounds = ( minimum $ map getC block, maximum $ map getC block )
+        inCol (Tile r _) = fst rbounds <= r && r <= snd rbounds
+        inRow (Tile _ c) = fst cbounds <= c && c <= snd cbounds
+
+        scratch :: (Int -> [Tile]) -> (Int, [Int]) -> IO ()
+        scratch tiles (i, ds) = mapM_
+            (\t -> modifyMVar_ (sudoku M.! t)
+                    (\cell -> return $ case cell of
+                        E d -> E $ d \\ ds
+                        x   -> x
+                    )
+            ) $ tiles i
+
+    
+    -- Maps each index on the rows/cols it's on.
+    rowcolWise :: [Tile] -> IO (Map Int [Int], Map Int [Int])
+    rowcolWise block = F.foldrM
+        (\tile (h, v) -> do
+            cell <- readMVar (sudoku M.! tile)
+            return $ case cell of
+                D d  -> (ins tile (getR) h d, ins tile (getC) v d)
+                E ds -> (foldl (ins tile $ getR) h ds, foldl (ins tile $ getC) v ds)
+                X    -> (h, v)
+        ) (empty, empty) block
+      where ins t f m d = M.alter (Just . (merge [f t]) . F.concat) d m
+
+    onlyOne :: Map Int [Int] -> Map Int Int
+    onlyOne = M.mapMaybe (\x -> if length x == 1 then Just (head x) else Nothing)
+
+    toIndexDigits :: Map Int Int -> Map Int [Int]
+    toIndexDigits = (M.fromListWith (merge)) . (map (\(d, i) -> (i, [d]))) . M.toList
+        
+    
 
 -- ========================================================================== --
 --  Aid functions.
@@ -302,23 +383,50 @@ untilM valid next = go
       | valid current = return current
       | otherwise     = next current >>= go
 
+merge :: Ord a => [a] -> [a] -> [a]
+merge (x:xs) (y:ys)
+  | x < y     = x : (merge xs $ y:ys)
+  | y < x     = y : (merge ys $ x:xs)
+  | otherwise = x : merge xs ys
+merge [] ys   = ys
+merge xs []   = xs
+
 
 --------------------------------------------------------------------------------
 -- Main
 main :: IO ()
 main = do
     initialSamurai <- parseSamurai
-    _  <- liftM fst $ untilM (not . snd) solveSamuraiStep (initialSamurai, True)
-    --printSamurai solvedSamurai
-    return ()
+    solvedSamurai  <- samuraiLooper initialSamurai
+    printSamurai solvedSamurai
   where
-    solveSamuraiStep :: (Samurai, Bool) -> IO (Samurai, Bool)
-    solveSamuraiStep (Samurai ul ur ll lr ce, _) = do
-        change' <- liftM or $ mapM (liftM snd . solveSudokuStep) [ul, ur, ll, lr, ce]
-        printSamurai $ Samurai ul ur ll lr ce
-        return (Samurai ul ur ll lr ce, change')
-
-    solveSudokuStep :: Sudoku -> IO (Sudoku, Bool)
-    solveSudokuStep sudoku = do
-        sudoku' <- removeClashes sudoku >>= theseCellsAreBelongToUs
+    solveSudokuStep :: (Sudoku, Bool) -> IO (Sudoku, Bool)
+    solveSudokuStep (sudoku, _) = do
+        sudoku' <- removeClashes sudoku >>= weStandUnited >>= theseCellsAreBelongToUs >>= candidateLine
         fixSingles sudoku'
+
+    samuraiLooper :: Samurai -> IO Samurai
+    samuraiLooper (Samurai ul ur ll lr ce) = do
+        locks <- replicateM 5 $ newMVar True
+        let [ullock, urlock, lllock, lrlock, celock] = locks
+        _ <- forkIO $ sudokuLooper ullock ul
+        _ <- forkIO $ sudokuLooper urlock ur
+        _ <- forkIO $ sudokuLooper lllock ll
+        _ <- forkIO $ sudokuLooper lrlock lr
+        sudokuLooper celock ce
+        changes <- mapM takeMVar locks
+        if or changes
+            then samuraiLooper $ Samurai ul ur ll lr ce
+            else return $ Samurai ul ur ll lr ce
+
+    sudokuLooper :: MVar Bool -> Sudoku -> IO ()
+    sudokuLooper lock sudoku = do
+        _ <- takeMVar lock
+        (_, change) <- solveSudokuStep (sudoku, True)
+        _ <- untilM (not . snd) solveSudokuStep (sudoku, change)
+        putMVar lock change
+
+
+
+
+
